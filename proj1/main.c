@@ -6,14 +6,15 @@
 
 #define stav_display 1
 #define stav_menu 2
+#define stav_manual 3
 
 void process_enc(void);
 void blick_bat(void);
 void tlacitko(void);
 
 uint16_t last_time=0;
-uint16_t minule=1,x=70;
-uint8_t stav=1,bat1=1,bat2=1,lcd_sloupec=0,pointer=0;
+uint16_t minule=1,last=1,x=70,y=180;
+uint8_t stav=1,bat1=1,bat2=1,lcd_sloupec=0,pointer=0,kontrola=0;
 
 volatile int16_t encoder=0;
 char text[24];
@@ -27,7 +28,7 @@ lcd_init();		// inicializace displeje
 
 GPIO_Init(GPIOB,GPIO_PIN_2,GPIO_MODE_IN_PU_NO_IT);  // vstup, s vnitoním pullup rezistorem
 GPIO_Init(GPIOB,GPIO_PIN_3,GPIO_MODE_IN_PU_NO_IT);
-GPIO_Init(GPIOE,GPIO_PIN_4,GPIO_MODE_IN_PU_NO_IT);
+GPIO_Init(GPIOB,GPIO_PIN_0,GPIO_MODE_IN_PU_NO_IT);
 
 lcd_store_symbol(0,time);
 lcd_store_symbol(3,battery);
@@ -43,7 +44,6 @@ lcd_clear();
   while (1){
 		switch(stav){
 			case stav_display:
-				tlacitko();
 				//první slot pro baterii
 				if(bat1 == 0){
 					sprintf(text,"%s","chybi baterie");
@@ -86,11 +86,12 @@ lcd_clear();
 					lcd_gotoxy(1,1); 
 					lcd_puts(text);
 				}
+				tlacitko();
 				break;
 				
 			case stav_menu:
 				process_enc();
-				if(encoder < 1){
+				if(encoder <= 1){
 					sprintf(text,"%s","Manual");
 					lcd_gotoxy(1,0); 
 					lcd_puts(text);
@@ -99,25 +100,26 @@ lcd_clear();
 					lcd_gotoxy(1,1); 
 					lcd_puts(text);
 				}
-				
-				if(encoder > 1){
-					sprintf(text,"%s","Automat");
+				if(encoder == 2){
+					sprintf(text,"%s","Sleep");
 					lcd_gotoxy(1,0); 
 					lcd_puts(text);
-				
-					sprintf(text,"%s","Sleep");
-					lcd_gotoxy(1,1); 
-					lcd_puts(text);
 				}
-			
-				
 				if(encoder >= 3 ){
 					encoder=2;
 				}
-				pointer=encoder;
-				lcd_gotoxy(0,pointer); 
+				lcd_gotoxy(0,encoder); 
 				lcd_putchar(7);
+				tlacitko();
 				break;
+				
+		case stav_manual:
+			sprintf(text,"pozice %u",y); 
+			strcat(text, "°");
+			lcd_gotoxy(1,0); 
+			lcd_puts(text);
+			tlacitko();
+			break;
 		}
 	}
 }
@@ -163,12 +165,29 @@ if(milis()-bat_icon_time >= 500 && p==4){
 }
 }
 
+//potvrzovací tlaèítko
 void tlacitko(void){
-	if(GPIO_ReadInputPin(GPIOE,GPIO_PIN_4) == RESET && minule==1){
-		minule=0;
-		stav=2;
-		lcd_clear();
-	if(GPIO_ReadInputPin(GPIOE,GPIO_PIN_4) != RESET){minule = 1;}
+	if(GPIO_ReadInputPin(GPIOB,GPIO_PIN_0) == RESET && last==1){
+		last=0;
+		if(stav==1){
+			stav=stav_menu;
+			lcd_clear();
+			kontrola=1;
+		}
+		if(stav==2 && encoder==0 && kontrola==0){
+			stav=stav_manual;
+			lcd_clear();
+			kontrola=1;
+		}
+		if(stav==3 && kontrola==0){
+			stav=stav_menu;
+			lcd_clear();
+			kontrola=1;
+		}
+	}
+	if(GPIO_ReadInputPin(GPIOB,GPIO_PIN_0) != RESET){
+	last = 1;
+	kontrola=0;
 	}
 }
 
@@ -181,11 +200,11 @@ void process_enc(void){
 		// poeeteme stav vstupu B
 	if(GPIO_ReadInputPin(GPIOB,GPIO_PIN_3) == RESET){
 			// log.0 na vstupu B (krok jedním smirem)
-			if(stav==2){lcd_clear();}
+			if(stav=2){lcd_clear();}
 			encoder++;
 	}else{
 			// log.1 na vstupu B (krok druhým smirem)
-			if(stav==2){lcd_clear();}
+			if(stav=2){lcd_clear();}
 			encoder--;
 	}
 	if(encoder < 0){encoder=0;}
