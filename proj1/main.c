@@ -7,14 +7,20 @@
 #define stav_display 1
 #define stav_menu 2
 #define stav_manual 3
+#define stav_test 4//pro test tlaèítka ;)
+
+
+
 
 void process_enc(void);
+void servo_manual(void);
 void blick_bat(void);
 void tlacitko(void);
+void init_pwm(void);
 
-uint16_t last_time=0;
+uint16_t last_time=0,last_time1;
 uint16_t minule=1,last=1,x=70,y=180;
-uint8_t stav=1,bat1=1,bat2=1,lcd_sloupec=0,pointer=0,kontrola=0;
+uint8_t stav=1,bat1=1,bat2=1,lcd_sloupec=0,pointer=0,kontrola=0,run=1;
 
 volatile int16_t encoder=0;
 char text[24];
@@ -25,6 +31,7 @@ CLK_HSIPrescalerConfig(CLK_PRESCALER_HSIDIV1); // 16MHz z interního RC oscilátor
 
 init_milis(); // milis kvuli delay_ms()
 lcd_init();		// inicializace displeje
+init_pwm();
 
 GPIO_Init(GPIOB,GPIO_PIN_2,GPIO_MODE_IN_PU_NO_IT);  // vstup, s vnitoním pullup rezistorem
 GPIO_Init(GPIOB,GPIO_PIN_3,GPIO_MODE_IN_PU_NO_IT);
@@ -43,6 +50,7 @@ lcd_clear();
 
   while (1){
 		switch(stav){
+			//stav-Zobrazování hodnot na display
 			case stav_display:
 				//první slot pro baterii
 				if(bat1 == 0){
@@ -89,6 +97,7 @@ lcd_clear();
 				tlacitko();
 				break;
 				
+			//stav-prochazení menu	
 			case stav_menu:
 				process_enc();
 				if(encoder <= 1){
@@ -112,18 +121,21 @@ lcd_clear();
 				lcd_putchar(7);
 				tlacitko();
 				break;
-				
+		//stav-manuální otáèení serva		
 		case stav_manual:
 			sprintf(text,"pozice %u",y); 
 			strcat(text, "°");
 			lcd_gotoxy(1,0); 
 			lcd_puts(text);
 			tlacitko();
+			process_enc();
+			servo_manual();
 			break;
 		}
 	}
 }
 
+//animace blikání baterie
 void blick_bat(void){
 	
 static uint16_t bat_icon_time=0;
@@ -179,6 +191,11 @@ void tlacitko(void){
 			lcd_clear();
 			kontrola=1;
 		}
+		if(stav==2 && encoder==1 && kontrola==0){
+			stav=stav_display;
+			lcd_clear();
+			kontrola=1;
+		}
 		if(stav==3 && kontrola==0){
 			stav=stav_menu;
 			lcd_clear();
@@ -187,32 +204,60 @@ void tlacitko(void){
 	}
 	if(GPIO_ReadInputPin(GPIOB,GPIO_PIN_0) != RESET){
 	last = 1;
-	kontrola=0;
+	kontrola=0;//pøeskoèí zbylé podmínky 
 	}
 }
 
 // vyhodnocuje stav enkodéru
 void process_enc(void){
-	 // pamatuje si minulý stav vstupu A (nutné k detekování sestupné hrany)
-	// pokud je na vstupu A hodnota 0 a minule byla hodnota 1 tak jsme zachytili sestupnou hranu
 	if(GPIO_ReadInputPin(GPIOB,GPIO_PIN_2) == RESET && minule==1){
-		minule = 0; // nyní je pin v log.0
-		// poeeteme stav vstupu B
-	if(GPIO_ReadInputPin(GPIOB,GPIO_PIN_3) == RESET){
-			// log.0 na vstupu B (krok jedním smirem)
-			if(stav=2){lcd_clear();}
+		minule = 0; 
+		
+		if(GPIO_ReadInputPin(GPIOB,GPIO_PIN_3) == RESET){
 			encoder++;
-	}else{
-			// log.1 na vstupu B (krok druhým smirem)
-			if(stav=2){lcd_clear();}
+			run=1;
+			if(stav==2){lcd_clear();}
+			if(stav==3){last_time=milis();}
+		}else{
 			encoder--;
-	}
-	if(encoder < 0){encoder=0;}
+			run=2;
+			if(stav==2){lcd_clear();}
+			if(stav==3){last_time=milis();}
+		}
+		if(encoder < 0){encoder=0;}
 	}
 	if(GPIO_ReadInputPin(GPIOB,GPIO_PIN_2) != RESET){minule = 1;} // pokud je vstup A v log.1
 	}
 
 
+//funkce pro manuální natoèení serva
+void servo_manual(void){
+	if(run==1){
+		TIM2_SetCompare1(1430);
+	}
+	if(run==2){
+		TIM2_SetCompare1(1551);
+	}
+	if(milis() - last_time >= 25){
+			run=0;
+			TIM2_SetCompare1(0);
+	}
+}
+
+//funkce pro nastavení PWM
+void init_pwm(void){
+TIM2_TimeBaseInit(TIM2_PRESCALER_16,19999);
+
+TIM2_OC1Init( 	
+	TIM2_OCMODE_PWM1, 				
+	TIM2_OUTPUTSTATE_ENABLE,	
+	0,		
+	TIM2_OCPOLARITY_HIGH			
+	);
+	
+TIM2_OC1PreloadConfig(ENABLE);
+TIM2_Cmd(ENABLE);
+}
 
 // pod tímto komentáøem nic nemìòte 
 #ifdef USE_FULL_ASSERT
