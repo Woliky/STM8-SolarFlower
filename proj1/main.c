@@ -7,10 +7,19 @@
 #include "stm8s_awu.h"
 #include "stm8s_exti.h"
 
+#define lcd_on		GPIO_WriteHigh(GPIOG, GPIO_PIN_2);
+#define lcd_off 	GPIO_WriteLow(GPIOG, GPIO_PIN_2);
+#define servo_on	GPIO_WriteHigh(GPIOG, GPIO_PIN_3);
+#define servo_off	GPIO_WriteLow(GPIOG, GPIO_PIN_3);
+#define foto1_on	GPIO_WriteHigh(GPIOD, GPIO_PIN_6);
+#define foto1_off	GPIO_WriteLow(GPIOD, GPIO_PIN_6);
+#define foto2_on	GPIO_WriteHigh(GPIOD, GPIO_PIN_5);
+#define foto2_off	GPIO_WriteLow(GPIOD, GPIO_PIN_5);
+
 #define stav_display 1
 #define stav_menu 2
 #define stav_manual 3
-#define stav_sleep 4
+#define stav_sleep 4 
 
 #define nic 1
 #define pravo 2
@@ -34,16 +43,25 @@ uint16_t last_time=0,volt_time=0,foto_time=0,bat_time=0;
 uint16_t minule=1,last=1,x=0,y=0,volt1=0,prevod=0,left=0,right=0;
 uint16_t volt=0,a=0,gate_prevod=0,slot1=0,slot2=0;
 uint8_t bat1=1,bat2=1,lcd_sloupec=0,pointer=0,kontrola=0,run=1,turn=0;
-uint8_t stav=1,stav_servo=1,block=0,strana=0,gate=0,blokada=0,volno=0,pocitadlo=0,zakaz=0;
+uint8_t stav=1,stav_servo=1,block=0,strana=0,gate=0,blokada=0,volno=0,pocitadlo=0,zakaz=0,spanek=0;
 
 volatile int16_t encoder=0;
 char text[24];
 
-INTERRUPT_HANDLER(AWU_IRQHandler, 1)
-{
+INTERRUPT_HANDLER(AWU_IRQHandler, 1){
 	AWU_GetFlagStatus();
-  GPIO_WriteReverse(GPIOC, GPIO_PIN_5);
-	stav=1;
+	spanek++;
+	if(spanek == 5){
+		GPIO_WriteReverse(GPIOC, GPIO_PIN_5);
+		stav=1;
+		spanek=0;
+		lcd_on;
+		servo_on;
+		foto1_on;
+		foto2_on;
+	}else{
+		halt();
+	}
 }
 
 void main(void){
@@ -65,10 +83,17 @@ GPIO_Init(GPIOB,GPIO_PIN_0,GPIO_MODE_IN_PU_NO_IT);//tlaèítko
 GPIO_Init(GPIOB,GPIO_PIN_1,GPIO_MODE_IN_PU_NO_IT);//optická brána
 GPIO_Init(GPIOB,GPIO_PIN_2,GPIO_MODE_IN_PU_NO_IT);//encoder kanál 1
 GPIO_Init(GPIOB,GPIO_PIN_3,GPIO_MODE_IN_PU_NO_IT);//encoder kanál 2
+GPIO_Init(GPIOB,GPIO_PIN_4,GPIO_MODE_IN_PU_NO_IT);//bat1
+GPIO_Init(GPIOB,GPIO_PIN_5,GPIO_MODE_IN_PU_NO_IT);//bat2
 GPIO_Init(GPIOB,GPIO_PIN_6,GPIO_MODE_IN_PU_NO_IT);//fotorezistor L ADC
 GPIO_Init(GPIOB,GPIO_PIN_7,GPIO_MODE_IN_PU_NO_IT);//fotorezistor R ADC
-GPIO_Init(GPIOE,GPIO_PIN_1,GPIO_MODE_OUT_PP_LOW_SLOW);//servo-pwm
+
+GPIO_Init(GPIOD,GPIO_PIN_4,GPIO_MODE_OUT_PP_LOW_SLOW);//servo-pwm
 GPIO_Init(GPIOC,GPIO_PIN_5,GPIO_MODE_OUT_PP_LOW_SLOW);
+GPIO_Init(GPIOG,GPIO_PIN_2,GPIO_MODE_OUT_PP_LOW_SLOW);//lcd podsvícení
+GPIO_Init(GPIOG,GPIO_PIN_3,GPIO_MODE_OUT_PP_LOW_SLOW);//servo-napájení
+GPIO_Init(GPIOD,GPIO_PIN_6,GPIO_MODE_OUT_PP_LOW_SLOW);//foto 1
+GPIO_Init(GPIOD,GPIO_PIN_5,GPIO_MODE_OUT_PP_LOW_SLOW);//foto 2
 
 //Uložení custom symbolù do RAM
 lcd_store_symbol(0,time);
@@ -80,6 +105,10 @@ lcd_store_symbol(5,battery_full);
 lcd_store_symbol(6,cross);
 lcd_store_symbol(7,point);
 
+foto1_on;
+foto2_on;
+lcd_on;
+servo_on;
 lcd_clear();
 enableInterrupts();
 
@@ -177,6 +206,10 @@ enableInterrupts();
 			break;
 			
 		case stav_sleep:
+			lcd_off;
+			servo_off;
+			foto1_off;
+			foto2_off;
 			halt();
 			break;
 		}
