@@ -1,84 +1,151 @@
-https://wintip.cz/602-jak-upravit-mezery-mezi-ikonami-na-plose
 #include "stm8s.h"
 #include "milis.h"
-#include "spse_stm8.h"
 #include "stm8_hd44780.h"
 #include "stdio.h"
+#include "emoji.h"
 
-#define base_position 1000;
+#define stav_display 1
+#define stav_menu 2
 
-void init_pwm(void);
-void servo(void);
-void ADC_init(void);
+void process_enc(void);
+void blick_bat(void);
 
+uint16_t last_time=0;
+uint16_t minule=1,x=70;
+uint8_t stav=1,bat1=1,bat2=1,lcd_sloupec=0;
 
-uint16_t stop=1000;
-uint16_t time_servo=0,last_time=0;	//uloženi èasu
-uint8_t x=0,b=0,y=0,a=0;	//pomocné promìné 
-uint8_t text[32];
+volatile int16_t hodnota=0;
+char text[24];
 
 
 void main(void){
 CLK_HSIPrescalerConfig(CLK_PRESCALER_HSIDIV1); // 16MHz z interního RC oscilátoru
 
-init_milis(); 
-init_pwm(); 
-ADC_init();
+init_milis(); // milis kvuli delay_ms()
+lcd_init();		// inicializace displeje
 
-GPIO_Init(GPIOD, GPIO_PIN_4, GPIO_MODE_OUT_PP_LOW_FAST);//PWM
-GPIO_Init(GPIOB, GPIO_PIN_0,GPIO_MODE_IN_PU_NO_IT);//ADC pøevod
-GPIO_Init(GPIOB, GPIO_PIN_1,GPIO_MODE_IN_PU_NO_IT);//ADC pøevod
-GPIO_Init(GPIOB, GPIO_PIN_2,GPIO_MODE_IN_PU_NO_IT);//ADC pøevod
-GPIO_Init(GPIOB, GPIO_PIN_3,GPIO_MODE_IN_PU_NO_IT);//ADC pøevod
+GPIO_Init(GPIOB,GPIO_PIN_2,GPIO_MODE_IN_PU_NO_IT);  // vstup, s vnitoním pullup rezistorem
+GPIO_Init(GPIOB,GPIO_PIN_3,GPIO_MODE_IN_PU_NO_IT);
+
+lcd_store_symbol(0,time);
+lcd_store_symbol(3,battery);
+lcd_store_symbol(1,battery_low);
+lcd_store_symbol(2,battery_low1);
+lcd_store_symbol(4,battery_full1);
+lcd_store_symbol(5,battery_full);
+lcd_store_symbol(6,cross);
+lcd_clear();
 
   while (1){
-  	servo();
-		if(milis()- time >= 100){
-			L = ADC_get(ADC2_CHANNEL_2);
-			R = ADC_get(ADC2_CHANNEL_1);
+		switch(stav){
+			case stav_display:
+				//první slot pro baterii
+				if(bat1 == 0){
+					sprintf(text,"%s","chybi baterie");
+					lcd_gotoxy(3,0); 
+					lcd_puts(text);
+					
+					lcd_gotoxy(1,0); 
+					lcd_putchar(6);
+					lcd_gotoxy(0,0); 
+					lcd_putchar(1);
+				}else{
+					lcd_sloupec=0;
+					blick_bat();
+					sprintf(text,"Nabito %u",x); 
+					strcat(text, "%");
+					lcd_gotoxy(1,0); 
+					lcd_puts(text);
+				}
+				
+				//Druhý slot pro baterii
+				if(bat2 == 0){
+					sprintf(text,"%s","chybi baterie");
+					lcd_gotoxy(3,1); 
+					lcd_puts(text);
+					
+					lcd_gotoxy(1,1); 
+					lcd_putchar(6);
+					lcd_gotoxy(0,1); 
+					lcd_putchar(1);
+				}else{
+					lcd_sloupec=1;
+					if(bat1 == 1){
+						lcd_gotoxy(0,1); 
+						lcd_putchar(3);
+					}else{blick_bat();}
+					
+					sprintf(text,"Nabito %u",x); 
+					strcat(text, "%");
+					
+					lcd_gotoxy(1,1); 
+					lcd_puts(text);
+				}
+				break;
 		}
-		if(R+10 > L && R-10 > L){
-			a=1;
-		}
-		if(L+10 > R && L-10 > R){
-			a=0;
-		}
-  }
+		
+		process_enc();
+	}
 }
 
-
-//zmìna DCL/støídy
+void blick_bat(void){
 	
-void servo(void){
-		if(a==0){
-			TIM2_SetCompare1(1430); 
-		}
-		if(a==1){
-			TIM2_SetCompare1(1551); 
-		}
-		if(x==4){
-			TIM2_SetCompare1(0); 
-		}
-	}	
-}	
+static uint16_t bat_icon_time=0;
+static uint8_t p=0;
 
-
-void init_pwm(void){
-	
-TIM2_TimeBaseInit(TIM2_PRESCALER_16,19999);
-
-TIM2_OC1Init( 	// inicializujeme kanál 1 (TM2_CH1)
-	TIM2_OCMODE_PWM1, 				// režim PWM1
-	TIM2_OUTPUTSTATE_ENABLE,	// Výstup povolen (TIMer ovládá pin)
-	0,		// výchozí hodnota šíøky pulzu je 1.5ms
-	TIM2_OCPOLARITY_HIGH			// Zátìž rozsvìcíme hodnotou HIGH 
-	);
-	
-// aktivuji na použitých kanálech preload (zajišuje zmìnu støídy bez nežádoucích efektù)
-TIM2_OC1PreloadConfig(ENABLE);
-// spustíme timer	
-TIM2_Cmd(ENABLE);
+if(milis()-bat_icon_time >= 500 && p==0){
+	lcd_gotoxy(0,lcd_sloupec); 
+	lcd_putchar(1);
+	bat_icon_time=milis();
+	p=1;
 }
+
+if(milis()-bat_icon_time >= 500 && p==1){
+	lcd_gotoxy(0,lcd_sloupec); 
+	lcd_putchar(2);
+	bat_icon_time=milis();
+	p=2;
+}
+
+if(milis()-bat_icon_time >= 500 && p==2){
+	lcd_gotoxy(0,lcd_sloupec); 
+	lcd_putchar(3);
+	bat_icon_time=milis();
+	p=3;
+}
+
+if(milis()-bat_icon_time >= 500 && p==3){
+	lcd_gotoxy(0,lcd_sloupec); 
+	lcd_putchar(4);
+	bat_icon_time=milis();
+	p=4;
+}
+
+if(milis()-bat_icon_time >= 500 && p==4){
+	lcd_gotoxy(0,lcd_sloupec); 
+	lcd_putchar(5);
+	bat_icon_time=milis();
+	p=0;
+}
+}
+
+// vyhodnocuje stav enkodéru
+void process_enc(void){
+	 // pamatuje si minulý stav vstupu A (nutné k detekování sestupné hrany)
+	// pokud je na vstupu A hodnota 0 a minule byla hodnota 1 tak jsme zachytili sestupnou hranu
+	if(GPIO_ReadInputPin(GPIOB,GPIO_PIN_2) == RESET && minule==1){
+		minule = 0; // nyní je pin v log.0
+		// poeeteme stav vstupu B
+	if(GPIO_ReadInputPin(GPIOB,GPIO_PIN_3) == RESET){
+			// log.0 na vstupu B (krok jedním smirem)
+			hodnota++;
+	}else{
+			// log.1 na vstupu B (krok druhým smirem)
+			hodnota--;
+	}
+	}
+	if(GPIO_ReadInputPin(GPIOB,GPIO_PIN_2) != RESET){minule = 1;} // pokud je vstup A v log.1
+	}
 
 
 
