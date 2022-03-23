@@ -9,18 +9,28 @@
 #define stav_menu 2
 #define stav_manual 3
 
+#define nic 1
+#define pravo 2
+#define levo 3
+#define presun 4
+
 void process_enc(void);
 void servo_manual(void);
+void servo_auto(void);
 void voltage(void);
+void optic_gate(void);
 void blick_bat(void);
 void tlacitko(void);
 void init_pwm(void);
 void ADC_init(void);
 
-uint16_t last_time=0,volt_time=0;
-uint16_t minule=1,last=1,x=70,y=0,volt1=0,prevod=0;
-uint8_t stav=1,bat1=1,bat2=1,lcd_sloupec=0,pointer=0,kontrola=0,run=1;
-uint16_t volt=0,a=0;
+
+uint16_t last_time=0,volt_time=0,foto_time=0;
+uint16_t minule=1,last=1,x=70,y=0,volt1=0,prevod=0,left=0,right=0;
+uint16_t volt=0,a=0,gate_prevod=0;
+uint8_t bat1=1,bat2=1,lcd_sloupec=0,pointer=0,kontrola=0,run=1,turn=0;
+uint8_t stav=1,stav_servo=1,block=0,strana=0,gate=0;
+
 volatile int16_t encoder=0;
 char text[24];
 
@@ -34,9 +44,12 @@ init_pwm();		//inicializace PWM
 ADC_init();		//inicializace ADC
 
 //inicializace vstupù
-GPIO_Init(GPIOB,GPIO_PIN_2,GPIO_MODE_IN_PU_NO_IT);  
-GPIO_Init(GPIOB,GPIO_PIN_3,GPIO_MODE_IN_PU_NO_IT);
-GPIO_Init(GPIOB,GPIO_PIN_0,GPIO_MODE_IN_PU_NO_IT);
+GPIO_Init(GPIOB,GPIO_PIN_0,GPIO_MODE_IN_PU_NO_IT);//tlaèítko
+GPIO_Init(GPIOB,GPIO_PIN_1,GPIO_MODE_IN_PU_NO_IT);//optická brána
+GPIO_Init(GPIOB,GPIO_PIN_2,GPIO_MODE_IN_PU_NO_IT);//encoder kanál 1
+GPIO_Init(GPIOB,GPIO_PIN_3,GPIO_MODE_IN_PU_NO_IT);//encoder kanál 2
+GPIO_Init(GPIOB,GPIO_PIN_6,GPIO_MODE_IN_PU_NO_IT);//fotorezistor L ADC
+GPIO_Init(GPIOB,GPIO_PIN_7,GPIO_MODE_IN_PU_NO_IT);//fotorezistor R ADC
 
 //Uložení custom symbolù do RAM
 lcd_store_symbol(0,time);
@@ -101,10 +114,12 @@ lcd_clear();
 					lcd_puts(text);
 				}
 				tlacitko();
+				optic_gate();
 				break;
 				
 			//stav-prochazení menu	
 			case stav_menu:
+				TIM2_SetCompare1(0);
 				process_enc();
 				if(encoder <= 1){
 					sprintf(text,"%s","Manual");
@@ -245,8 +260,137 @@ void process_enc(void){
 		}
 		if(encoder < 0){encoder=0;}
 	}
-	if(GPIO_ReadInputPin(GPIOB,GPIO_PIN_2) != RESET){minule = 1;} // pokud je vstup A v log.1
+	if(GPIO_ReadInputPin(GPIOB,GPIO_PIN_2) != RESET){minule = 1;} 
 	}
+	
+//funkce pro automatické otáèení serva
+void servo_auto(void){
+	if(milis()- foto_time >= 100){
+		left = ADC_get(ADC2_CHANNEL_6);
+		right = ADC_get(ADC2_CHANNEL_7);
+		
+		if(right+40 > left && right-40 > left){//do prava
+			turn=1;
+		}
+		else if(left+40 > right && left-40 > right){//do leva
+			turn=2;
+		}
+		else{
+			turn=0;
+		}
+	}
+	if(turn==1 && block==1){//pravo
+		TIM2_SetCompare1(1551); 
+	}
+	if(turn==2 && block==2){//levo
+		TIM2_SetCompare1(1430); 
+	}
+	if(turn==0){
+		TIM2_SetCompare1(0); 
+	}
+	optic_gate();
+}
+
+
+//funkce pro obsluhu optické brány
+void optic_gate(void){
+	gate_prevod = ADC_get(ADC2_CHANNEL_1);
+	if(gate_prevod <= 300 && block==0){
+		gate++;
+		block=1;
+	}
+	if(gate_prevod >= 350){
+		block=0;
+	}
+	
+	
+	switch(stav_servo){
+		case nic:
+			if(milis()- foto_time >= 100){
+				left = ADC_get(ADC2_CHANNEL_6);
+				right = ADC_get(ADC2_CHANNEL_7);
+		
+				if(right+40 > left && right-40 > left){//do prava
+					turn=1;
+				}
+				else if(left+40 > right && left-40 > right){//do leva
+					turn=2;
+				}
+				else{
+					turn=0;
+				}
+			}
+			if(turn==1){//pravo
+				TIM2_SetCompare1(1551); 
+			}
+			if(turn==2){//levo
+				TIM2_SetCompare1(1430); 
+			}
+			if(turn==0){
+				TIM2_SetCompare1(0); 
+			}
+			if(turn==1 && gate==1){
+				stav_servo=pravo;
+			}
+			if(turn==2 && gate==1){
+				stav_servo=levo;
+			}
+		break;
+		
+		case pravo:
+			TIM2_SetCompare1(0);
+			if(milis()- foto_time >= 100){
+				left = ADC_get(ADC2_CHANNEL_6);
+				right = ADC_get(ADC2_CHANNEL_7);
+		
+				if(right+200 > left && right-200 > left){//do prava
+					stav_servo = presun;
+					strana=1;
+				}
+				if(left+40 > right && left-40 > right){//do leva
+					stav_servo = nic;
+				}
+			}
+			break;
+			
+		case levo:
+			TIM2_SetCompare1(0);
+			if(milis()- foto_time >= 100){
+				left = ADC_get(ADC2_CHANNEL_6);
+				right = ADC_get(ADC2_CHANNEL_7);
+		
+				if(right+40 > left && right-40 > left){//do prava
+					stav_servo = nic;
+					
+					
+				}
+				if(left+200 > right && left-200 > right){//do leva
+					stav_servo = presun;
+					strana=2;
+				}
+			}
+			break;
+			
+		case presun:
+			if(strana==1){
+				TIM2_SetCompare1(1430); //do leva
+				if(gate==2){
+					TIM2_SetCompare1(0); 
+					stav_servo = levo;
+					gate=0;
+				}
+			}
+			if(strana==2){
+				TIM2_SetCompare1(1551); //do prava
+				if(gate==2){
+					TIM2_SetCompare1(0); 
+					stav_servo = pravo;
+					gate=0;
+				}
+			}
+			break;
+	}
+}
 
 
 //funkce pro manuální natoèení serva
@@ -280,12 +424,12 @@ TIM2_Cmd(ENABLE);
 
 //funkce pro nastavení ADC pøevodníku
 void ADC_init(void){
-//  ADC_IN2 (PB4) a ADC_IN3 (PB5) 
-ADC2_SchmittTriggerConfig(ADC2_SCHMITTTRIG_CHANNEL4,DISABLE);
-ADC2_SchmittTriggerConfig(ADC2_SCHMITTTRIG_CHANNEL5,DISABLE);
+ADC2_SchmittTriggerConfig(ADC2_SCHMITTTRIG_CHANNEL1,DISABLE);//optická brána PB1
+ADC2_SchmittTriggerConfig(ADC2_SCHMITTTRIG_CHANNEL6,DISABLE);//levý foto PB6
+ADC2_SchmittTriggerConfig(ADC2_SCHMITTTRIG_CHANNEL7,DISABLE);//pravý foto PB7
 ADC2_PrescalerConfig(ADC2_PRESSEL_FCPU_D4);
 ADC2_AlignConfig(ADC2_ALIGN_RIGHT);
-ADC2_Select_Channel(ADC2_CHANNEL_4);
+ADC2_Select_Channel(ADC2_CHANNEL_6);
 ADC2_Cmd(ENABLE);
 ADC2_Startup_Wait();
 }
