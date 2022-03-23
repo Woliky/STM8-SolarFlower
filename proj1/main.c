@@ -1,4 +1,3 @@
-https://www.instructables.com/Charging-Lithium-Ion-Battery-With-Solar-Cell/
 #include "stm8s.h"
 #include "milis.h"
 #include "stm8_hd44780.h"	//knihovna LCD
@@ -16,6 +15,10 @@ https://www.instructables.com/Charging-Lithium-Ion-Battery-With-Solar-Cell/
 #define foto1_off	GPIO_WriteLow(GPIOD, GPIO_PIN_6);
 #define foto2_on	GPIO_WriteHigh(GPIOD, GPIO_PIN_5);
 #define foto2_off	GPIO_WriteLow(GPIOD, GPIO_PIN_5);
+#define bat_on		GPIO_WriteHigh(GPIOG, GPIO_PIN_7);
+#define bat_off		GPIO_WriteLow(GPIOG, GPIO_PIN_7);
+
+
 
 #define stav_display 1
 #define stav_menu 2
@@ -36,24 +39,36 @@ void power(void);
 void optic_gate(void);
 void blick_bat(void);
 void tlacitko(void);
+void tlacitko_sleep(void);
 void init_pwm(void);
 void ADC_init(void);
 
 
-uint16_t last_time=0,volt_time=0,foto_time=0,bat_time=0;
+uint16_t last_time=0,volt_time=0,foto_time=0,bat_time=0,wake_time=0;
 uint16_t minule=1,last=1,x=0,y=0,volt1=0,prevod=0,left=0,right=0;
-uint16_t volt=0,a=0,gate_prevod=0,slot1=0,slot2=0;
+uint16_t volt=0,a=0,gate_prevod=0,slot=0;
 uint8_t bat1=1,bat2=1,lcd_sloupec=0,pointer=0,kontrola=0,run=1,turn=0;
-uint8_t stav=1,stav_servo=1,block=0,strana=0,gate=0,blokada=0,volno=0,pocitadlo=0,zakaz=0,spanek=0,podminka=0,podminka2=0;
+uint8_t stav=1,stav_servo=1,block=0,strana=0,gate=0,blokada=0,volno=0,pocitadlo=0,zakaz=0,spanek=0,podminka=0,podminka2=0,sleep=0,wake=0,last_sleep=0;
 
 volatile int16_t encoder=0;
 char text[24];
 
+INTERRUPT_HANDLER(EXTI_PORTE_IRQHandler, 7){
+	
+  stav=1;
+	lcd_on;
+	servo_on;
+	foto1_on;
+	foto2_on;
+
+} 
+
+//AWU pøerušení
 INTERRUPT_HANDLER(AWU_IRQHandler, 1){
 	AWU_GetFlagStatus();
 	spanek++;
 	if(spanek == 5){
-		GPIO_WriteReverse(GPIOC, GPIO_PIN_5);
+		sleep=1;
 		stav=1;
 		spanek=0;
 		lcd_on;
@@ -75,11 +90,13 @@ ADC_init();		//inicializace ADC
 
 
 EXTI_SetExtIntSensitivity(EXTI_PORT_GPIOC, EXTI_SENSITIVITY_FALL_ONLY);
+EXTI_SetTLISensitivity(EXTI_TLISENSITIVITY_FALL_ONLY);
 AWU_LSICalibrationConfig(110000);
 AWU_Init(AWU_TIMEBASE_12S);
 
 
 //inicializace vstupù
+GPIO_Init(GPIOE,GPIO_PIN_6, GPIO_MODE_IN_FL_IT);//probouzecí tlaèítko
 GPIO_Init(GPIOB,GPIO_PIN_0,GPIO_MODE_IN_PU_NO_IT);//tlaèítko
 GPIO_Init(GPIOB,GPIO_PIN_1,GPIO_MODE_IN_PU_NO_IT);//optická brána
 GPIO_Init(GPIOB,GPIO_PIN_2,GPIO_MODE_IN_PU_NO_IT);//encoder kanál 1
@@ -90,11 +107,12 @@ GPIO_Init(GPIOB,GPIO_PIN_6,GPIO_MODE_IN_PU_NO_IT);//fotorezistor L ADC
 GPIO_Init(GPIOB,GPIO_PIN_7,GPIO_MODE_IN_PU_NO_IT);//fotorezistor R ADC
 
 GPIO_Init(GPIOD,GPIO_PIN_4,GPIO_MODE_OUT_PP_LOW_SLOW);//servo-pwm
-GPIO_Init(GPIOC,GPIO_PIN_5,GPIO_MODE_OUT_PP_LOW_SLOW);
-GPIO_Init(GPIOG,GPIO_PIN_2,GPIO_MODE_OUT_PP_LOW_SLOW);//lcd podsvícení
-GPIO_Init(GPIOG,GPIO_PIN_3,GPIO_MODE_OUT_PP_LOW_SLOW);//servo-napájení
 GPIO_Init(GPIOD,GPIO_PIN_6,GPIO_MODE_OUT_PP_LOW_SLOW);//foto 1
 GPIO_Init(GPIOD,GPIO_PIN_5,GPIO_MODE_OUT_PP_LOW_SLOW);//foto 2
+GPIO_Init(GPIOG,GPIO_PIN_2,GPIO_MODE_OUT_PP_LOW_SLOW);//lcd podsvícení
+GPIO_Init(GPIOG,GPIO_PIN_3,GPIO_MODE_OUT_PP_LOW_SLOW);//servo-napájení
+GPIO_Init(GPIOG,GPIO_PIN_7,GPIO_MODE_OUT_PP_LOW_SLOW);//foto 1
+GPIO_Init(GPIOG,GPIO_PIN_6,GPIO_MODE_OUT_PP_LOW_SLOW);//foto 2
 
 //Uložení custom symbolù do RAM
 lcd_store_symbol(0,time);
@@ -113,19 +131,37 @@ servo_on;
 lcd_clear();
 enableInterrupts();
 
+
+
   while (1){
 		switch(stav){
 			//stav-Zobrazování hodnot na display
 			case stav_display:
+				
+				if(sleep == 1){
+					if(milis()- wake_time >= 1000){
+						wake_time=milis();
+						wake++;
+						if(wake == 10){
+							wake=0;
+							sleep=0;
+							wake_time=0;
+							lcd_off;
+							servo_off;
+							foto1_off;
+							foto2_off;
+							halt();
+						}
+					}
+				}
+				
 				power();
 				voltage();
 				//první slot pro baterii
-				if(slot1 < 600){
+				if(slot < 600 || slot > 870){
 					podminka=0;
-					zakaz=0;
-					volno=0;
 					sprintf(text,"%s","chybi baterie");
-					lcd_gotoxy(3,0); 
+					lcd_gotoxy(2,0); 
 					lcd_puts(text);
 					
 					lcd_gotoxy(1,0); 
@@ -147,12 +183,12 @@ enableInterrupts();
 					
 						
 				}
-				
+				/*
 				//Druhý slot pro baterii
-				if(slot2 < 600){
+				if(slot2 < 600 || slot2 > 870){
 					podminka2=0;
 					sprintf(text,"%s","chybi baterie");
-					lcd_gotoxy(3,1); 
+					lcd_gotoxy(2,1); 
 					lcd_puts(text);
 					
 					lcd_gotoxy(1,1); 
@@ -177,6 +213,7 @@ enableInterrupts();
 					lcd_gotoxy(1,1); 
 					lcd_puts(text);
 				}
+				*/
 				tlacitko();
 				optic_gate();
 				break;
@@ -208,9 +245,11 @@ enableInterrupts();
 				break;
 		//stav-manuální otáèení serva		
 		case stav_manual:
-			sprintf(text,"pozice %u",y); 
-			strcat(text, "°");
-			lcd_gotoxy(1,0); 
+			sprintf(text,"%s","Nastavte pozici"); 
+			lcd_gotoxy(0,0); 
+			lcd_puts(text);
+			sprintf(text,"%s","Stisk > exit"); 
+			lcd_gotoxy(0,1); 
 			lcd_puts(text);
 			tlacitko();
 			process_enc();
@@ -232,17 +271,19 @@ enableInterrupts();
 void voltage(void){
 	if(milis() - volt_time >= 1000){
 			volt_time=milis();
-			volt=(slot1*5)/1024;//hodnota jednotek volt
-			volt1=(slot1*5)%1024/10;//hodnota setin volt
+			volt=(slot*5)/1024;//hodnota jednotek volt
+			volt1=(slot*5)%1024/10;//hodnota setin volt
 			volt=(volt*100)+volt1;//hodnota v setinách volt(100mv)
-			y=(420-volt)*10/4;//dosazení do trojèlenky pro zisk procentuální hodnoty
+			y=(420-volt);//dosazení do trojèlenky pro zisk procentuální hodnoty
 			y=100-y;
 			
+			/*
 			volt=(slot2*5)/1024;//hodnota jednotek volt
 			volt1=(slot2*5)%1024/10;//hodnota setin volt
 			volt=(volt*100)+volt1;//hodnota v setinách volt(100mv)
-			x=(420-volt)*10/4;//dosazení do trojèlenky pro zisk procentuální hodnoty
+			x=(420-volt);//dosazení do trojèlenky pro zisk procentuální hodnoty
 			x=100-x;
+			*/
 			
 	}
 }
@@ -252,28 +293,31 @@ void power(void){
 		pocitadlo++;
 		bat_time=milis();
 	}
-	if(pocitadlo==5){
-		GPIO_WriteLow(GPIOE, GPIO_PIN_1);
-		GPIO_WriteLow(GPIOE, GPIO_PIN_2);
+	if(pocitadlo==2){
+		bat_off;
 		pocitadlo=0;
-		slot1 = ADC_get(ADC2_CHANNEL_4);
-		slot2 = ADC_get(ADC2_CHANNEL_5);
+		slot = ADC_get(ADC2_CHANNEL_4);
 	}	
-	if(slot1 >= 840){
-		GPIO_WriteLow(GPIOE, GPIO_PIN_1);
-		zakaz=1;
+	if(slot > 600 && slot < 855){
+		if(volno=0){
+			lcd_clear();
+			volno=1;
+		}
+		bat_on;
 	}
-	if(slot2 >= 840){
-		GPIO_WriteLow(GPIOE, GPIO_PIN_2);
+	if(slot > 865){
+		volno=0;
+		bat_off;
+		slot=420;
 	}
-	if(slot1 > 0 && zakaz==0){//nabíjení 1
-		volno=1;
-		GPIO_WriteLow(GPIOE,GPIO_PIN_2);
-		GPIO_WriteHigh(GPIOE,GPIO_PIN_1);
+	if(slot < 600){
+		volno=0;
+		bat_off;
+		slot=420;
 	}
-	if(slot2 > 0 && volno==0){
-		GPIO_WriteLow(GPIOE,GPIO_PIN_1);
-		GPIO_WriteHigh(GPIOE,GPIO_PIN_2);
+	if(slot >= 860){
+		bat_off;
+		slot=420;
 	}
 }
 
@@ -317,6 +361,16 @@ if(milis()-bat_icon_time >= 500 && p==4){
 	bat_icon_time=milis();
 	p=0;
 }
+}
+
+//tlaèítko pro probuzení
+void tlacitko_sleep(void){
+	if(GPIO_ReadInputPin(GPIOE,GPIO_PIN_4) == RESET && last_sleep==1){
+		last_sleep=0;
+	}
+	if(GPIO_ReadInputPin(GPIOE,GPIO_PIN_4) != RESET){
+		last_sleep= 1;
+	}
 }
 
 //potvrzovací tlaèítko
@@ -541,7 +595,6 @@ TIM2_Cmd(ENABLE);
 void ADC_init(void){
 ADC2_SchmittTriggerConfig(ADC2_SCHMITTTRIG_CHANNEL1,DISABLE);//optická brána PB1
 ADC2_SchmittTriggerConfig(ADC2_SCHMITTTRIG_CHANNEL4,DISABLE);//Baterie 1
-ADC2_SchmittTriggerConfig(ADC2_SCHMITTTRIG_CHANNEL5,DISABLE);//Baterie 2
 ADC2_SchmittTriggerConfig(ADC2_SCHMITTTRIG_CHANNEL6,DISABLE);//levý foto PB6
 ADC2_SchmittTriggerConfig(ADC2_SCHMITTTRIG_CHANNEL7,DISABLE);//pravý foto PB7
 ADC2_PrescalerConfig(ADC2_PRESSEL_FCPU_D4);
