@@ -7,7 +7,7 @@
 #include "stdio.h"
 
 
-
+#define base_position 1000;
 
 void init_pwm(void);
 void servo(void);
@@ -15,68 +15,59 @@ void ADC_init(void);
 void lcd(void);
 
 
-uint16_t pulse=0; // výchozí šíøka pulzu
+uint16_t pulse=0,Q0=0,Q1=0,Q2=0,Q3=0,Left=0,Right=0,stop=1000; // výchozí šíøka pulzu
 uint16_t time_servo=0,last_time=0,volt=0,volt1=0;//uloženi èasu
-uint16_t x=0,b=0,y=0,a=0;//pomocné promìné 
+uint8_t x=0,b=0,y=0;//pomocné promìné 
 uint8_t text[32];
 
 
 void main(void){
 CLK_HSIPrescalerConfig(CLK_PRESCALER_HSIDIV1); // 16MHz z interního RC oscilátoru
 
-lcd_init();
 init_milis(); 
 init_pwm(); 
 ADC_init();
 
 GPIO_Init(GPIOD, GPIO_PIN_4, GPIO_MODE_OUT_PP_LOW_FAST);//PWM
-GPIO_Init(GPIOE, GPIO_PIN_4,GPIO_MODE_IN_FL_NO_IT);
-GPIO_Init(GPIOG, GPIO_PIN_5,GPIO_MODE_IN_PU_NO_IT);
-GPIO_Init(GPIOG, GPIO_PIN_4,GPIO_MODE_IN_PU_NO_IT);
+GPIO_Init(GPIOB, GPIO_PIN_0,GPIO_MODE_IN_PU_NO_IT);//ADC pøevod
+GPIO_Init(GPIOB, GPIO_PIN_1,GPIO_MODE_IN_PU_NO_IT);//ADC pøevod
 GPIO_Init(GPIOB, GPIO_PIN_2,GPIO_MODE_IN_PU_NO_IT);//ADC pøevod
+GPIO_Init(GPIOB, GPIO_PIN_3,GPIO_MODE_IN_PU_NO_IT);//ADC pøevod
 
   while (1){
-	lcd();
-	servo();
+  	servo();
   }
 }
 
-void lcd(void){
-
-	if(milis() - last_time>= 1000){
-			last_time=milis();
-			
-			x = ADC_get(ADC2_CHANNEL_2);
-			volt=(x*50)/1024;
-			a=(x*50)/1024;
-			volt1=volt/10;
-			volt=volt%10;
-			
-		  sprintf(text,"%01u",volt1);
-			lcd_gotoxy(0,0);
-			lcd_puts(text);
-			sprintf(text,"%01u",volt);
-			lcd_gotoxy(1,0);
-			lcd_puts(text);
-		}
-}
 
 //zmìna DCL/støídy
 void servo(void){
-
-	if(milis() - time_servo >=100){ 
+	
+	if(Left == Right){
+			TIM2_SetCompare1(stop); 
+	}
+	if(milis() - time_servo >=5){ 
 		time_servo = milis();
 		
-		if(a>28){
-			TIM2_SetCompare1(1430); 
+		Q0 = ADC_get(ADC2_CHANNEL_0);
+		Q1 = ADC_get(ADC2_CHANNEL_1);
+		Q2 = ADC_get(ADC2_CHANNEL_2);
+		Q3 = ADC_get(ADC2_CHANNEL_3);
+		Right=Q0+Q1;
+		Left=Q2+Q3;
+		
+		if(Left > (Right+10) && stop >= 800){
+			stop--;
+			TIM2_SetCompare1(stop);
 		}
 		
-		if(a<25){
-			TIM2_SetCompare1(1551); 
+		if((Left+10) < Right && stop <= 2800){
+			stop++;
+			TIM2_SetCompare1(stop); 
+			
 		}
-		if(a>=24 && a<=28){
-			TIM2_SetCompare1(0); 
-		}
+		
+	
 	}		
 }
 
@@ -90,7 +81,7 @@ TIM2_TimeBaseInit(TIM2_PRESCALER_16,19999);
 TIM2_OC1Init( 	// inicializujeme kanál 1 (TM2_CH1)
 	TIM2_OCMODE_PWM1, 				// režim PWM1
 	TIM2_OUTPUTSTATE_ENABLE,	// Výstup povolen (TIMer ovládá pin)
-	0,		// výchozí hodnota šíøky pulzu je 1.5ms
+	1000,		// výchozí hodnota šíøky pulzu je 1.5ms
 	TIM2_OCPOLARITY_HIGH			// Zátìž rozsvìcíme hodnotou HIGH 
 	);
 	
@@ -102,6 +93,8 @@ TIM2_Cmd(ENABLE);
 
 void ADC_init(void){
 // na pinech/vstupech ADC_IN2 (PB2) a ADC_IN3 (PB3) vypneme vstupní buffer
+ADC2_SchmittTriggerConfig(ADC2_SCHMITTTRIG_CHANNEL0,DISABLE);
+ADC2_SchmittTriggerConfig(ADC2_SCHMITTTRIG_CHANNEL1,DISABLE);
 ADC2_SchmittTriggerConfig(ADC2_SCHMITTTRIG_CHANNEL2,DISABLE);
 ADC2_SchmittTriggerConfig(ADC2_SCHMITTTRIG_CHANNEL3,DISABLE);
 // nastavíme clock pro ADC (16MHz / 4 = 4MHz)
