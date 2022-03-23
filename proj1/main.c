@@ -9,12 +9,13 @@
 
 void process_enc(void);
 void blick_bat(void);
+void tlacitko(void);
 
 uint16_t last_time=0;
 uint16_t minule=1,x=70;
-uint8_t stav=1,bat1=1,bat2=1,lcd_sloupec=0;
+uint8_t stav=1,bat1=1,bat2=1,lcd_sloupec=0,pointer=0;
 
-volatile int16_t hodnota=0;
+volatile int16_t encoder=0;
 char text[24];
 
 
@@ -26,6 +27,7 @@ lcd_init();		// inicializace displeje
 
 GPIO_Init(GPIOB,GPIO_PIN_2,GPIO_MODE_IN_PU_NO_IT);  // vstup, s vnitoním pullup rezistorem
 GPIO_Init(GPIOB,GPIO_PIN_3,GPIO_MODE_IN_PU_NO_IT);
+GPIO_Init(GPIOE,GPIO_PIN_4,GPIO_MODE_IN_PU_NO_IT);
 
 lcd_store_symbol(0,time);
 lcd_store_symbol(3,battery);
@@ -34,11 +36,14 @@ lcd_store_symbol(2,battery_low1);
 lcd_store_symbol(4,battery_full1);
 lcd_store_symbol(5,battery_full);
 lcd_store_symbol(6,cross);
+lcd_store_symbol(7,point);
+
 lcd_clear();
 
   while (1){
 		switch(stav){
 			case stav_display:
+				tlacitko();
 				//první slot pro baterii
 				if(bat1 == 0){
 					sprintf(text,"%s","chybi baterie");
@@ -82,9 +87,38 @@ lcd_clear();
 					lcd_puts(text);
 				}
 				break;
+				
+			case stav_menu:
+				process_enc();
+				if(encoder < 1){
+					sprintf(text,"%s","Manual");
+					lcd_gotoxy(1,0); 
+					lcd_puts(text);
+				
+					sprintf(text,"%s","Automat");
+					lcd_gotoxy(1,1); 
+					lcd_puts(text);
+				}
+				
+				if(encoder > 1){
+					sprintf(text,"%s","Automat");
+					lcd_gotoxy(1,0); 
+					lcd_puts(text);
+				
+					sprintf(text,"%s","Sleep");
+					lcd_gotoxy(1,1); 
+					lcd_puts(text);
+				}
+			
+				
+				if(encoder >= 3 ){
+					encoder=2;
+				}
+				pointer=encoder;
+				lcd_gotoxy(0,pointer); 
+				lcd_putchar(7);
+				break;
 		}
-		
-		process_enc();
 	}
 }
 
@@ -129,6 +163,15 @@ if(milis()-bat_icon_time >= 500 && p==4){
 }
 }
 
+void tlacitko(void){
+	if(GPIO_ReadInputPin(GPIOE,GPIO_PIN_4) == RESET && minule==1){
+		minule=0;
+		stav=2;
+		lcd_clear();
+	if(GPIO_ReadInputPin(GPIOE,GPIO_PIN_4) != RESET){minule = 1;}
+	}
+}
+
 // vyhodnocuje stav enkodéru
 void process_enc(void){
 	 // pamatuje si minulý stav vstupu A (nutné k detekování sestupné hrany)
@@ -138,11 +181,14 @@ void process_enc(void){
 		// poeeteme stav vstupu B
 	if(GPIO_ReadInputPin(GPIOB,GPIO_PIN_3) == RESET){
 			// log.0 na vstupu B (krok jedním smirem)
-			hodnota++;
+			if(stav==2){lcd_clear();}
+			encoder++;
 	}else{
 			// log.1 na vstupu B (krok druhým smirem)
-			hodnota--;
+			if(stav==2){lcd_clear();}
+			encoder--;
 	}
+	if(encoder < 0){encoder=0;}
 	}
 	if(GPIO_ReadInputPin(GPIOB,GPIO_PIN_2) != RESET){minule = 1;} // pokud je vstup A v log.1
 	}
