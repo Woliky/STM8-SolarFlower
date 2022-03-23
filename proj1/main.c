@@ -1,27 +1,27 @@
 #include "stm8s.h"
 #include "milis.h"
-#include "stm8_hd44780.h"
-#include "stdio.h"
-#include "emoji.h"
+#include "stm8_hd44780.h"	//knihovna LCD
+#include "stdio.h"		
+#include "spse_stm8.h"		//knihovno ADC
+#include "emoji.h"				//knihovna znakù
 
 #define stav_display 1
 #define stav_menu 2
 #define stav_manual 3
-#define stav_test 4//pro test tlaèítka ;)
-
-
-
 
 void process_enc(void);
 void servo_manual(void);
+void servo_auto(void);
+void voltage(void);
 void blick_bat(void);
 void tlacitko(void);
 void init_pwm(void);
+void ADC_init(void);
 
-uint16_t last_time=0,last_time1;
-uint16_t minule=1,last=1,x=70,y=180;
-uint8_t stav=1,bat1=1,bat2=1,lcd_sloupec=0,pointer=0,kontrola=0,run=1;
-
+uint16_t last_time=0,volt_time=0,foto_time=0;
+uint16_t minule=1,last=1,x=70,y=0,volt1=0,prevod=0;
+uint8_t stav=1,bat1=1,bat2=1,lcd_sloupec=0,pointer=0,kontrola=0,run=1,turn=0;
+uint16_t volt=0,a=0;
 volatile int16_t encoder=0;
 char text[24];
 
@@ -31,12 +31,17 @@ CLK_HSIPrescalerConfig(CLK_PRESCALER_HSIDIV1); // 16MHz z interního RC oscilátor
 
 init_milis(); // milis kvuli delay_ms()
 lcd_init();		// inicializace displeje
-init_pwm();
+init_pwm();		//inicializace PWM
+ADC_init();		//inicializace ADC
 
-GPIO_Init(GPIOB,GPIO_PIN_2,GPIO_MODE_IN_PU_NO_IT);  // vstup, s vnitoním pullup rezistorem
-GPIO_Init(GPIOB,GPIO_PIN_3,GPIO_MODE_IN_PU_NO_IT);
-GPIO_Init(GPIOB,GPIO_PIN_0,GPIO_MODE_IN_PU_NO_IT);
+//inicializace vstupù
+GPIO_Init(GPIOB,GPIO_PIN_0,GPIO_MODE_IN_PU_NO_IT);//tlaèítko
+GPIO_Init(GPIOB,GPIO_PIN_2,GPIO_MODE_IN_PU_NO_IT);//encoder kanál 1
+GPIO_Init(GPIOB,GPIO_PIN_3,GPIO_MODE_IN_PU_NO_IT);//encoder kanál 2
+GPIO_Init(GPIOB,GPIO_PIN_6,GPIO_MODE_IN_PU_NO_IT);//fotorezistor L ADC
+GPIO_Init(GPIOB,GPIO_PIN_7,GPIO_MODE_IN_PU_NO_IT);//fotorezistor R ADC
 
+//Uložení custom symbolù do RAM
 lcd_store_symbol(0,time);
 lcd_store_symbol(3,battery);
 lcd_store_symbol(1,battery_low);
@@ -48,10 +53,12 @@ lcd_store_symbol(7,point);
 
 lcd_clear();
 
+
   while (1){
 		switch(stav){
 			//stav-Zobrazování hodnot na display
 			case stav_display:
+				voltage();
 				//první slot pro baterii
 				if(bat1 == 0){
 					sprintf(text,"%s","chybi baterie");
@@ -65,10 +72,12 @@ lcd_clear();
 				}else{
 					lcd_sloupec=0;
 					blick_bat();
-					sprintf(text,"Nabito %u",x); 
+					sprintf(text,"Nabito %u",y); 
 					strcat(text, "%");
 					lcd_gotoxy(1,0); 
 					lcd_puts(text);
+					
+						
 				}
 				
 				//Druhý slot pro baterii
@@ -133,6 +142,19 @@ lcd_clear();
 			break;
 		}
 	}
+}
+
+//funkce pro mìøení napìtí
+void voltage(void){
+	if(milis() - volt_time >= 1000){
+			volt_time=milis();
+			volt=(833*5)/1024;//hodnota jednotek volt
+			volt1=(830*5)%1024/10;//hodnota setin volt
+			volt=(volt*100)+volt1;//hodnota v setinách volt(100mv)
+			y=(420-volt)*10/4;//dosazení do trojèlenky pro zisk procentuální hodnoty
+			y=100-y;
+	}
+	prevod = ADC_get(ADC2_CHANNEL_4);
 }
 
 //animace blikání baterie
@@ -226,9 +248,36 @@ void process_enc(void){
 		}
 		if(encoder < 0){encoder=0;}
 	}
-	if(GPIO_ReadInputPin(GPIOB,GPIO_PIN_2) != RESET){minule = 1;} // pokud je vstup A v log.1
+	if(GPIO_ReadInputPin(GPIOB,GPIO_PIN_2) != RESET){minule = 1;} 
 	}
 
+void servo_auto(void){
+uint16_t left=0,right=0;
+
+	if(milis()- foto_time >= 100){
+		left = ADC_get(ADC2_CHANNEL_6);
+		right = ADC_get(ADC2_CHANNEL_7);
+		
+		if(right+10 > left && right-10 > left){
+			turn=1;
+		}
+		else if(left+10 > right && left-10 > right){
+			turn=2;
+		}
+		else{
+			turn=0;
+		}
+	}
+	if(turn==1){
+		TIM2_SetCompare1(1430); 
+	}
+	if(turn==2){
+		TIM2_SetCompare1(1551); 
+	}
+	if(turn==0){
+		TIM2_SetCompare1(0); 
+	}
+}
 
 //funkce pro manuální natoèení serva
 void servo_manual(void){
@@ -257,6 +306,18 @@ TIM2_OC1Init(
 	
 TIM2_OC1PreloadConfig(ENABLE);
 TIM2_Cmd(ENABLE);
+}
+
+//funkce pro nastavení ADC pøevodníku
+void ADC_init(void){
+//  ADC_IN2 (PB4) a ADC_IN3 (PB5) 
+ADC2_SchmittTriggerConfig(ADC2_SCHMITTTRIG_CHANNEL6,DISABLE);
+ADC2_SchmittTriggerConfig(ADC2_SCHMITTTRIG_CHANNEL7,DISABLE);
+ADC2_PrescalerConfig(ADC2_PRESSEL_FCPU_D4);
+ADC2_AlignConfig(ADC2_ALIGN_RIGHT);
+ADC2_Select_Channel(ADC2_CHANNEL_6);
+ADC2_Cmd(ENABLE);
+ADC2_Startup_Wait();
 }
 
 // pod tímto komentáøem nic nemìòte 
