@@ -1,3 +1,4 @@
+https://www.instructables.com/Charging-Lithium-Ion-Battery-With-Solar-Cell/
 #include "stm8s.h"
 #include "milis.h"
 #include "stm8_hd44780.h"	//knihovna LCD
@@ -43,7 +44,7 @@ uint16_t last_time=0,volt_time=0,foto_time=0,bat_time=0;
 uint16_t minule=1,last=1,x=0,y=0,volt1=0,prevod=0,left=0,right=0;
 uint16_t volt=0,a=0,gate_prevod=0,slot1=0,slot2=0;
 uint8_t bat1=1,bat2=1,lcd_sloupec=0,pointer=0,kontrola=0,run=1,turn=0;
-uint8_t stav=1,stav_servo=1,block=0,strana=0,gate=0,blokada=0,volno=0,pocitadlo=0,zakaz=0,spanek=0;
+uint8_t stav=1,stav_servo=1,block=0,strana=0,gate=0,blokada=0,volno=0,pocitadlo=0,zakaz=0,spanek=0,podminka=0,podminka2=0;
 
 volatile int16_t encoder=0;
 char text[24];
@@ -116,11 +117,11 @@ enableInterrupts();
 		switch(stav){
 			//stav-Zobrazování hodnot na display
 			case stav_display:
-			GPIO_WriteHigh(GPIOE, GPIO_PIN_1);
 				power();
 				voltage();
 				//první slot pro baterii
-				if(slot1 == 0){
+				if(slot1 < 600){
+					podminka=0;
 					zakaz=0;
 					volno=0;
 					sprintf(text,"%s","chybi baterie");
@@ -131,7 +132,12 @@ enableInterrupts();
 					lcd_putchar(6);
 					lcd_gotoxy(0,0); 
 					lcd_putchar(1);
-				}else{
+				}
+				else{
+					if(podminka==0){
+						lcd_clear();
+						podminka=1;
+					}
 					lcd_sloupec=0;
 					blick_bat();
 					sprintf(text,"Nabito %u",y); 
@@ -143,7 +149,8 @@ enableInterrupts();
 				}
 				
 				//Druhý slot pro baterii
-				if(slot2 == 0){
+				if(slot2 < 600){
+					podminka2=0;
 					sprintf(text,"%s","chybi baterie");
 					lcd_gotoxy(3,1); 
 					lcd_puts(text);
@@ -152,7 +159,12 @@ enableInterrupts();
 					lcd_putchar(6);
 					lcd_gotoxy(0,1); 
 					lcd_putchar(1);
-				}else{
+				}
+				else{
+					if(podminka2==0){
+						lcd_clear();
+						podminka2=1;
+				}
 					lcd_sloupec=1;
 					if(bat1 == 1){
 						lcd_gotoxy(0,1); 
